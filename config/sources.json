@@ -1,0 +1,46 @@
+{
+  "reddit_search": {
+    "query": "Sora invite code OR \"Sora 2 invite\" OR \"Sora2 invite\"",
+    "limit": 75
+  },
+  "reddit_subs": {
+    "subs": ["ChatGPT", "OpenAI", "SoraAI"],
+    "limit": 50
+  },
+  "generic_rss": {
+    "feeds": [
+      "https://hnrss.org/newest",
+      "https://news.ycombinator.com/rss"
+    ]
+  },
+  "generic_html": {
+    "urls": [
+      "https://www.reddit.com/r/ChatGPT/",
+      "https://www.reddit.com/r/OpenAI/",
+      "https://www.reddit.com/r/SoraAI/"
+    ]
+  },
+  "denylist_tokens": [
+    "TODAY",
+    "UPDATE",
+    "HTTPS",
+    "HTTP",
+    "AM",
+    "PM",
+    "UTC",
+    "USA",
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "SEPT",
+    "OCT",
+    "NOV",
+    "DEC"
+  ]
+}
