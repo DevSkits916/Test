@@ -1,41 +1,49 @@
-"""Adapter that queries Reddit search JSON endpoint."""
+"""Adapter for Reddit search API."""
 
 from __future__ import annotations
 
-import datetime as dt
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-import requests
-
 from .base import SourceAdapter, register
-
-REDDIT_SEARCH_URL = "https://www.reddit.com/search.json"
 
 
 @register("reddit_search")
 class RedditSearchAdapter(SourceAdapter):
-    """Search Reddit for matching posts."""
+    """Fetch posts via Reddit's search.json endpoint."""
 
     def fetch(self) -> List[Dict[str, Any]]:
-        query = self.config.get("query", "Sora invite code")
-        limit = int(self.config.get("limit", 50))
-        params = {"q": query, "sort": "new", "limit": limit, "restrict_sr": False}
-        try:
-            response = self.get_with_reddit_fallback(REDDIT_SEARCH_URL, params=params)
-        except requests.RequestException:
+        endpoint = self.config.get("endpoint", "https://www.reddit.com/search.json")
+        query = self.config.get("query")
+        if not query:
             return []
+        params = {
+            "q": query,
+            "sort": "new",
+            "limit": int(self.config.get("limit", 50)),
+        }
+        response = self.get(endpoint, params=params, headers={"User-Agent": self.user_agent})
         payload = response.json()
+        children = payload.get("data", {}).get("children", [])
         items: List[Dict[str, Any]] = []
-        for child in payload.get("data", {}).get("children", []):
+        for child in children:
             data = child.get("data", {})
-            created = dt.datetime.utcfromtimestamp(data.get("created_utc", 0))
+            title = data.get("title", "")
+            text = data.get("selftext", "")
+            url = data.get("url", endpoint)
+            created = data.get("created_utc")
+            timestamp = (
+                datetime.fromtimestamp(created, tz=timezone.utc)
+                if isinstance(created, (int, float))
+                else datetime.now(timezone.utc)
+            )
             items.append(
-                {
-                    "title": data.get("title", ""),
-                    "text": data.get("selftext", ""),
-                    "url": f"https://www.reddit.com{data.get('permalink', '')}",
-                    "source_id": data.get("id", ""),
-                    "timestamp_iso": created.replace(tzinfo=dt.timezone.utc).isoformat(),
-                }
+                self.normalize_item(
+                    title=title,
+                    text=text,
+                    url=url,
+                    source_id=self.name,
+                    timestamp=timestamp,
+                )
             )
         return items

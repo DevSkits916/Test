@@ -2,227 +2,449 @@ const state = {
   filters: {
     q: '',
     source: '',
-    include_hidden: false,
-    include_tried: true,
+    showTried: false,
+    showHidden: false,
   },
   page: 1,
-  pageSize: 100,
-  data: [],
+  pageSize: 50,
+  total: 0,
+  loading: false,
+  logsPaused: false,
+  logName: 'app',
+  logsTimer: null,
+  items: [],
 };
 
-async function fetchSnapshot() {
-  const res = await fetch('/api/snapshot');
-  if (!res.ok) return;
-  const payload = await res.json();
-  document.querySelector('#last-poll').textContent = payload.last_poll || '—';
-  document.querySelector('#total-codes').textContent = payload.totals?.visible ?? 0;
-  renderTable(payload.candidates || []);
-}
+const elements = {
+  kpiLastPoll: document.getElementById('kpi-last-poll'),
+  kpiTotal: document.getElementById('kpi-total'),
+  kpiLast24h: document.getElementById('kpi-last-24h'),
+  kpiSources: document.getElementById('kpi-sources'),
+  tableBody: document.getElementById('codes-body'),
+  tableCount: document.getElementById('table-count'),
+  loadMore: document.getElementById('load-more'),
+  filterForm: document.getElementById('filters'),
+  filterQuery: document.getElementById('filter-q'),
+  filterSource: document.getElementById('filter-source'),
+  filterShowTried: document.getElementById('filter-show-tried'),
+  filterShowHidden: document.getElementById('filter-show-hidden'),
+  filterRefresh: document.getElementById('filter-refresh'),
+  filterReset: document.getElementById('filter-reset'),
+  sourcesBody: document.getElementById('sources-body'),
+  recheckSources: document.getElementById('recheck-sources'),
+  logsView: document.getElementById('logs-view'),
+  logSelect: document.getElementById('log-select'),
+  logLines: document.getElementById('log-lines'),
+  logsRefresh: document.getElementById('logs-refresh'),
+  logsToggle: document.getElementById('logs-toggle'),
+  exportJson: document.getElementById('export-json'),
+  exportCsv: document.getElementById('export-csv'),
+  exportJsonPage: document.getElementById('export-json-page'),
+  exportCsvPage: document.getElementById('export-csv-page'),
+};
 
-async function fetchCodes() {
-  const params = new URLSearchParams({
-    page: state.page,
-    page_size: state.pageSize,
-  });
-  if (state.filters.q) params.set('q', state.filters.q);
-  if (state.filters.source) params.set('source', state.filters.source);
-  if (state.filters.include_hidden) params.set('include_hidden', 'true');
-  if (!state.filters.include_tried) params.set('include_tried', 'false');
-  const res = await fetch(`/api/codes?${params.toString()}`);
-  if (!res.ok) return;
-  const payload = await res.json();
-  state.data = payload.items;
-  document.querySelector('#total-codes').textContent = payload.total_visible;
-  renderTable(state.data);
-}
-
-function renderTable(codes) {
-  const tbody = document.querySelector('#codes-body');
-  tbody.innerHTML = '';
-  for (const candidate of codes) {
-    const tr = document.createElement('tr');
-    tr.dataset.code = candidate.code;
-    tr.innerHTML = `
-      <td>
-        <div class="code-chip">
-          <span>${candidate.code}</span>
-          <button class="secondary copy" data-code="${candidate.code}">Copy</button>
-        </div>
-      </td>
-      <td>
-        <span title="${candidate.discovered_at}">${relativeTime(candidate.discovered_at)}</span>
-      </td>
-      <td>${candidate.source}</td>
-      <td><a href="${candidate.url}" target="_blank" rel="noopener">Open ↗</a></td>
-      <td>${escapeHtml(candidate.example_text || '')}</td>
-      <td>
-        <div class="actions">
-          <button class="secondary mark-tried" data-code="${candidate.code}">${candidate.tried ? 'Tried' : 'Mark tried'}</button>
-          <button class="secondary toggle-hidden" data-code="${candidate.code}">${candidate.hidden ? 'Unhide' : 'Hide'}</button>
-          <button class="secondary delete" data-code="${candidate.code}">Delete</button>
-        </div>
-      </td>
-    `;
-    if (candidate.hidden) {
-      tr.style.opacity = 0.4;
-    }
-    tbody.appendChild(tr);
-  }
-}
-
-function relativeTime(isoString) {
-  if (!isoString) return '—';
-  const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
-  const date = new Date(isoString);
+function formatRelative(iso) {
+  if (!iso) return '—';
+  const date = new Date(iso);
   const now = new Date();
-  const diff = (date.getTime() - now.getTime()) / 1000;
-  const thresholds = [
-    { unit: 'day', value: 86400 },
-    { unit: 'hour', value: 3600 },
-    { unit: 'minute', value: 60 },
-    { unit: 'second', value: 1 },
-  ];
-  for (const threshold of thresholds) {
-    if (Math.abs(diff) >= threshold.value || threshold.unit === 'second') {
-      return formatter.format(Math.round(diff / threshold.value), threshold.unit);
-    }
+  const diffMs = date.getTime() - now.getTime();
+  const diffSec = Math.round(diffMs / 1000);
+  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+  const absSec = Math.abs(diffSec);
+  if (absSec < 60) return rtf.format(Math.round(diffSec), 'second');
+  const diffMin = Math.round(diffSec / 60);
+  if (Math.abs(diffMin) < 60) return rtf.format(diffMin, 'minute');
+  const diffHour = Math.round(diffMin / 60);
+  if (Math.abs(diffHour) < 24) return rtf.format(diffHour, 'hour');
+  const diffDay = Math.round(diffHour / 24);
+  return rtf.format(diffDay, 'day');
+}
+
+function buildQuery(params) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    searchParams.set(key, value);
+  });
+  return searchParams.toString();
+}
+
+function currentFilterParams(overrides = {}) {
+  const params = {
+    q: state.filters.q,
+    source: state.filters.source,
+    include_tried: state.filters.showTried ? '1' : '0',
+    include_hidden: state.filters.showHidden ? '1' : '0',
+  };
+  return { ...params, ...overrides };
+}
+
+async function fetchJSON(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || response.statusText);
   }
-  return formatter.format(0, 'second');
+  return response.json();
 }
 
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function renderKPIs(snapshot) {
+  elements.kpiLastPoll.textContent = snapshot.last_poll ? formatRelative(snapshot.last_poll) : '—';
+  if (snapshot.last_poll) {
+    elements.kpiLastPoll.title = new Date(snapshot.last_poll).toLocaleString();
+  }
+  const totals = snapshot.totals || {};
+  elements.kpiTotal.textContent = totals.visible ?? 0;
+  elements.kpiLast24h.textContent = totals.last_24h ?? 0;
+  const sources = snapshot.active_sources || [];
+  elements.kpiSources.textContent = sources.length;
+  updateSourceOptions(sources);
 }
 
-function attachListeners() {
-  document.querySelector('#filter-q').addEventListener('input', (event) => {
-    state.filters.q = event.target.value;
-    debounceFetch();
+function updateSourceOptions(sources) {
+  const select = elements.filterSource;
+  const current = select.value;
+  select.innerHTML = '<option value="">All sources</option>';
+  sources.forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    select.appendChild(option);
   });
-  document.querySelector('#filter-source').addEventListener('change', (event) => {
-    state.filters.source = event.target.value;
-    fetchCodes();
-  });
-  document.querySelector('#filter-hidden').addEventListener('change', (event) => {
-    state.filters.include_hidden = event.target.checked;
-    fetchCodes();
-  });
-  document.querySelector('#filter-tried').addEventListener('change', (event) => {
-    state.filters.include_tried = event.target.checked;
-    fetchCodes();
-  });
-  document.querySelector('#export-json').addEventListener('click', () => exportJSON());
-  document.querySelector('#export-csv').addEventListener('click', () => exportCSV());
-  document.querySelector('#codes-body').addEventListener('click', onTableClick);
-}
-
-let debounceTimer;
-function debounceFetch() {
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(fetchCodes, 350);
-}
-
-async function onTableClick(event) {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-  const code = target.dataset.code;
-  if (target.classList.contains('copy')) {
-    await navigator.clipboard.writeText(code);
-    target.textContent = 'Copied!';
-    setTimeout(() => (target.textContent = 'Copy'), 1200);
-  } else if (target.classList.contains('mark-tried')) {
-    await fetch(`/api/codes/${encodeURIComponent(code)}/tried`, { method: 'POST' });
-    fetchCodes();
-  } else if (target.classList.contains('toggle-hidden')) {
-    await fetch(`/api/codes/${encodeURIComponent(code)}/hide`, { method: 'POST' });
-    fetchCodes();
-  } else if (target.classList.contains('delete')) {
-    if (confirm(`Delete ${code}?`)) {
-      await fetch(`/api/codes/${encodeURIComponent(code)}`, { method: 'DELETE' });
-      fetchCodes();
-    }
+  if (sources.includes(current)) {
+    select.value = current;
   }
 }
 
-function startEventStream() {
-  const stream = new EventSource('/events');
-  stream.onmessage = (event) => {
+function renderCandidates(items, append = false) {
+  if (!append) {
+    state.items = [];
+    elements.tableBody.innerHTML = '';
+  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((item) => {
+    state.items.push(item);
+    fragment.appendChild(buildRow(item));
+  });
+  elements.tableBody.appendChild(fragment);
+  updateTableInfo();
+}
+
+function buildRow(item) {
+  const tr = document.createElement('tr');
+
+  const codeCell = document.createElement('td');
+  const codeWrapper = document.createElement('span');
+  codeWrapper.className = 'code-pill';
+  const codeText = document.createElement('span');
+  codeText.textContent = item.code;
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.textContent = 'Copy';
+  copyBtn.addEventListener('click', () => copyToClipboard(item.code));
+  codeWrapper.append(codeText, copyBtn);
+  codeCell.appendChild(codeWrapper);
+  tr.appendChild(codeCell);
+
+  const discoveredCell = document.createElement('td');
+  discoveredCell.textContent = formatRelative(item.discovered_at);
+  if (item.discovered_at) {
+    discoveredCell.title = new Date(item.discovered_at).toLocaleString();
+  }
+  tr.appendChild(discoveredCell);
+
+  const sourceCell = document.createElement('td');
+  sourceCell.textContent = item.source || '—';
+  tr.appendChild(sourceCell);
+
+  const linkCell = document.createElement('td');
+  if (item.url) {
+    const link = document.createElement('a');
+    link.href = item.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = 'Open';
+    linkCell.appendChild(link);
+  } else {
+    linkCell.textContent = '—';
+  }
+  tr.appendChild(linkCell);
+
+  const snippetCell = document.createElement('td');
+  snippetCell.textContent = item.example_text || '—';
+  tr.appendChild(snippetCell);
+
+  const actionsCell = document.createElement('td');
+  actionsCell.appendChild(actionButton('Tried', () => markTried(item.code)));
+  actionsCell.appendChild(actionButton(item.hidden ? 'Unhide' : 'Hide', () => toggleHidden(item.code)));
+  actionsCell.appendChild(actionButton('Delete', () => deleteCode(item.code), 'danger'));
+  tr.appendChild(actionsCell);
+
+  return tr;
+}
+
+function actionButton(label, handler, variant) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = variant === 'danger' ? 'secondary danger' : 'secondary';
+  btn.textContent = label;
+  btn.addEventListener('click', handler);
+  return btn;
+}
+
+function updateTableInfo() {
+  elements.tableCount.textContent = `${state.total} results`;
+  elements.loadMore.style.display = state.items.length < state.total ? 'inline-flex' : 'none';
+}
+
+async function loadCodes({ reset = false } = {}) {
+  if (state.loading) return;
+  state.loading = true;
+  if (reset) {
+    state.page = 1;
+  }
+  const params = currentFilterParams({ page: state.page, page_size: state.pageSize });
+  try {
+    const data = await fetchJSON(`/api/codes?${buildQuery(params)}`);
+    state.total = data.total;
+    const items = data.items || [];
+    renderCandidates(items, !reset && state.page > 1);
+    if (reset) {
+      elements.tableBody.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } catch (error) {
+    console.error('Failed to load codes', error);
+  } finally {
+    state.loading = false;
+  }
+}
+
+async function applyFilters() {
+  state.filters.q = elements.filterQuery.value.trim();
+  state.filters.source = elements.filterSource.value;
+  state.filters.showTried = elements.filterShowTried.checked;
+  state.filters.showHidden = elements.filterShowHidden.checked;
+  await loadCodes({ reset: true });
+}
+
+function setupFilters() {
+  elements.filterForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+  });
+  [elements.filterQuery, elements.filterSource].forEach((input) => {
+    input.addEventListener('change', () => applyFilters());
+  });
+  elements.filterShowHidden.addEventListener('change', () => applyFilters());
+  elements.filterShowTried.addEventListener('change', () => applyFilters());
+  elements.filterRefresh.addEventListener('click', () => applyFilters());
+  elements.filterReset.addEventListener('click', () => {
+    elements.filterQuery.value = '';
+    elements.filterSource.value = '';
+    elements.filterShowHidden.checked = false;
+    elements.filterShowTried.checked = false;
+    applyFilters();
+  });
+  elements.loadMore.addEventListener('click', () => {
+    state.page += 1;
+    loadCodes({ reset: false });
+  });
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    console.warn('Clipboard copy failed', error);
+  }
+}
+
+async function markTried(code) {
+  await fetchJSON(`/api/codes/${encodeURIComponent(code)}/tried`, { method: 'POST' });
+  await loadCodes({ reset: true });
+}
+
+async function toggleHidden(code) {
+  await fetchJSON(`/api/codes/${encodeURIComponent(code)}/hide`, { method: 'POST' });
+  await loadCodes({ reset: true });
+}
+
+async function deleteCode(code) {
+  if (!confirm(`Delete ${code}?`)) return;
+  await fetchJSON(`/api/codes/${encodeURIComponent(code)}`, { method: 'DELETE' });
+  await loadCodes({ reset: true });
+}
+
+function setupNavigation() {
+  const navButtons = document.querySelectorAll('.nav-link');
+  navButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      navButtons.forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      const target = btn.dataset.target;
+      document.querySelectorAll('.view').forEach((view) => {
+        view.classList.toggle('active', view.id === `view-${target}`);
+      });
+    });
+  });
+}
+
+async function refreshSnapshot() {
+  try {
+    const snapshot = await fetchJSON('/api/snapshot');
+    renderKPIs(snapshot);
+    renderSources(snapshot.sources_health || []);
+  } catch (error) {
+    console.error('Failed to load snapshot', error);
+  }
+}
+
+function renderSources(sources) {
+  elements.sourcesBody.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  sources.forEach((item) => {
+    const tr = document.createElement('tr');
+    const urlCell = document.createElement('td');
+    const link = document.createElement('a');
+    link.href = item.url;
+    link.textContent = item.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    urlCell.appendChild(link);
+    tr.appendChild(urlCell);
+
+    const statusCell = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + (item.ok ? 'ok' : item.status_code ? 'warn' : 'error');
+    if (item.ok) {
+      badge.textContent = `OK (${item.status_code})`;
+    } else if (item.status_code) {
+      badge.textContent = `HTTP ${item.status_code}`;
+    } else {
+      badge.textContent = 'Error';
+    }
+    statusCell.appendChild(badge);
+    tr.appendChild(statusCell);
+
+    const lastCheckedCell = document.createElement('td');
+    lastCheckedCell.textContent = item.last_checked_iso ? formatRelative(item.last_checked_iso) : '—';
+    if (item.last_checked_iso) {
+      lastCheckedCell.title = new Date(item.last_checked_iso).toLocaleString();
+    }
+    tr.appendChild(lastCheckedCell);
+
+    const errorCell = document.createElement('td');
+    errorCell.textContent = item.error || '—';
+    tr.appendChild(errorCell);
+
+    fragment.appendChild(tr);
+  });
+  elements.sourcesBody.appendChild(fragment);
+}
+
+async function recheckSources() {
+  try {
+    elements.recheckSources.disabled = true;
+    const data = await fetchJSON('/api/sources/recheck', { method: 'POST' });
+    renderSources(data.sources || []);
+  } catch (error) {
+    console.error('Failed to recheck sources', error);
+  } finally {
+    elements.recheckSources.disabled = false;
+  }
+}
+
+async function loadLogs() {
+  if (state.logsPaused) return;
+  try {
+    const name = state.logName;
+    const lines = Math.max(50, Math.min(1000, parseInt(elements.logLines.value, 10) || 200));
+    const data = await fetchJSON(`/api/logs/tail?${buildQuery({ name, lines })}`);
+    const text = (data.lines || []).join('\n');
+    elements.logsView.textContent = text || 'No log entries.';
+    elements.logsView.scrollTop = elements.logsView.scrollHeight;
+  } catch (error) {
+    elements.logsView.textContent = 'Unable to load logs.';
+  }
+}
+
+function setupLogs() {
+  elements.logSelect.addEventListener('change', () => {
+    state.logName = elements.logSelect.value;
+    loadLogs();
+  });
+  elements.logsRefresh.addEventListener('click', () => {
+    loadLogs();
+  });
+  elements.logsToggle.addEventListener('click', () => {
+    state.logsPaused = !state.logsPaused;
+    elements.logsToggle.textContent = state.logsPaused ? 'Resume' : 'Pause';
+    if (!state.logsPaused) {
+      loadLogs();
+    }
+  });
+  if (state.logsTimer) clearInterval(state.logsTimer);
+  state.logsTimer = setInterval(() => loadLogs(), 8000);
+}
+
+function buildExportUrl(format) {
+  const params = currentFilterParams();
+  const endpoint = format === 'json' ? '/api/export.json' : '/api/export.csv';
+  const query = buildQuery({ ...params, limit: 5000 });
+  return `${endpoint}?${query}`;
+}
+
+function setupExports() {
+  const openExport = (format) => {
+    window.open(buildExportUrl(format), '_blank');
+  };
+  elements.exportJson.addEventListener('click', () => openExport('json'));
+  elements.exportCsv.addEventListener('click', () => openExport('csv'));
+  elements.exportJsonPage.addEventListener('click', () => openExport('json'));
+  elements.exportCsvPage.addEventListener('click', () => openExport('csv'));
+}
+
+function setupEventStream() {
+  const source = new EventSource('/events');
+  source.onmessage = (event) => {
     try {
-      const payload = JSON.parse(event.data);
-      prependCandidate(payload);
+      const data = JSON.parse(event.data);
+      if (shouldDisplay(data)) {
+        loadCodes({ reset: true });
+      }
+      refreshSnapshot();
     } catch (error) {
-      console.error('Failed to parse event', error);
+      console.error('Failed to parse SSE payload', error);
     }
+  };
+  source.onerror = () => {
+    source.close();
+    setTimeout(setupEventStream, 5000);
   };
 }
 
-function prependCandidate(candidate) {
-  const tbody = document.querySelector('#codes-body');
-  const existing = tbody.querySelector(`tr[data-code="${candidate.code}"]`);
-  if (existing) {
-    existing.remove();
+function shouldDisplay(candidate) {
+  if (!candidate) return false;
+  if (state.filters.source && candidate.source !== state.filters.source) return false;
+  if (!state.filters.showHidden && candidate.hidden) return false;
+  if (!state.filters.showTried && candidate.tried) return false;
+  if (state.filters.q) {
+    const haystack = `${candidate.code} ${candidate.source_title || ''} ${candidate.example_text || ''}`.toUpperCase();
+    if (!haystack.includes(state.filters.q.toUpperCase())) {
+      return false;
+    }
   }
-  const row = document.createElement('tr');
-  row.dataset.code = candidate.code;
-  row.innerHTML = `
-    <td>
-      <div class="code-chip">
-        <span>${candidate.code}</span>
-        <button class="secondary copy" data-code="${candidate.code}">Copy</button>
-      </div>
-    </td>
-    <td><span title="${candidate.discovered_at}">${relativeTime(candidate.discovered_at)}</span></td>
-    <td>${candidate.source}</td>
-    <td><a href="${candidate.url}" target="_blank" rel="noopener">Open ↗</a></td>
-    <td>${escapeHtml(candidate.example_text || '')}</td>
-    <td>
-      <div class="actions">
-        <button class="secondary mark-tried" data-code="${candidate.code}">${candidate.tried ? 'Tried' : 'Mark tried'}</button>
-        <button class="secondary toggle-hidden" data-code="${candidate.code}">${candidate.hidden ? 'Unhide' : 'Hide'}</button>
-        <button class="secondary delete" data-code="${candidate.code}">Delete</button>
-      </div>
-    </td>
-  `;
-  tbody.prepend(row);
-}
-
-function exportJSON() {
-  const blob = new Blob([JSON.stringify(state.data, null, 2)], { type: 'application/json' });
-  downloadBlob(blob, 'sora-invite-codes.json');
-}
-
-function exportCSV() {
-  const header = ['code', 'source', 'source_title', 'url', 'example_text', 'discovered_at', 'tried', 'hidden'];
-  const rows = [header.join(',')];
-  for (const record of state.data) {
-    const line = header.map((key) => `"${String(record[key] ?? '').replace(/"/g, '""')}`);
-    rows.push(line.join(','));
-  }
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  downloadBlob(blob, 'sora-invite-codes.csv');
-}
-
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  return true;
 }
 
 async function bootstrap() {
-  attachListeners();
-  await fetchSnapshot();
-  await fetchCodes();
-  startEventStream();
+  setupNavigation();
+  setupFilters();
+  setupLogs();
+  setupExports();
+  elements.recheckSources.addEventListener('click', () => recheckSources());
+  await Promise.all([refreshSnapshot(), loadCodes({ reset: true }), loadLogs()]);
+  setupEventStream();
+  setInterval(() => refreshSnapshot(), 60000);
 }
 
-document.addEventListener('DOMContentLoaded', bootstrap);
+bootstrap().catch((error) => console.error(error));

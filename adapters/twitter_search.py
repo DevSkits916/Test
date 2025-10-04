@@ -1,4 +1,4 @@
-"""Adapter for scraping generic HTML pages."""
+"""Best-effort adapter for scraping X/Twitter search pages."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 from .base import SourceAdapter, register
 
 
-class _TextExtractor(HTMLParser):
+class _VisibleTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self._chunks: List[str] = []
@@ -47,12 +47,12 @@ class _TextExtractor(HTMLParser):
         return " ".join(self._title_chunks)
 
 
-@register("generic_html")
-class GenericHTMLAdapter(SourceAdapter):
-    """Fetch HTML content from configured URLs."""
+@register("twitter_search")
+class TwitterSearchAdapter(SourceAdapter):
+    """Fetch HTML search results for configured queries."""
 
     def fetch(self) -> List[Dict[str, Any]]:
-        urls = self.config.get("urls") or []
+        urls = self.config.get("live_urls") or []
         items: List[Dict[str, Any]] = []
         for url in urls:
             try:
@@ -65,9 +65,9 @@ class GenericHTMLAdapter(SourceAdapter):
                 )
             except Exception:  # pragma: no cover - network failures logged upstream
                 continue
-            parser = _TextExtractor()
+            parser = _VisibleTextParser()
             parser.feed(response.text)
-            title = parser.get_title() or url
+            title = parser.get_title() or "Twitter search"
             text = parser.get_text()
             items.append(
                 self.normalize_item(

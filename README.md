@@ -1,19 +1,25 @@
 # Sora Invite Code Hunter
 
-Sora Invite Code Hunter is a lightweight monitoring tool that keeps an eye on public sources for posts that might contain invite codes for OpenAI's Sora program. It continuously polls Reddit, RSS feeds, and arbitrary HTML pages, extracts strings that look like invite codes, deduplicates them, and serves them through a live dashboard, JSON API, and optional Discord notifications.
+Sora Invite Code Hunter continuously monitors curated public sources for potential Sora 2 invite
+codes. It normalises feeds from Reddit, X/Twitter, RSS, and generic HTML pages, applies strict
+heuristics to extract invite-like tokens, persists the results, and surfaces them through a live
+Flask dashboard, JSON API, and export tooling. URL health checks, structured logging, and optional
+Discord notifications keep operations observable and production ready.
 
 ## Features
 
-- 🔍 **Multi-source polling** with pluggable adapters (Reddit search, subreddit feeds, RSS/Atom, generic HTML pages).
-- 🧠 **Heuristic extraction** using regex, length checks, and a configurable denylist to reduce false positives.
-- 🗄️ **Storage abstraction** with fast in-memory mode and optional SQLite persistence.
-- 🔁 **Background scheduler** that keeps polling without blocking the web server and gracefully handles HTTP errors and rate limits.
-- 📊 **Real-time dashboard** with Server-Sent Events (SSE) that streams new codes without a page refresh.
-- 📡 **JSON API** for programmatic access, including pagination, filters, and state-changing endpoints.
-- 🔔 **Optional Discord notifications** whenever a new candidate code is discovered.
-- 📦 **Deploy anywhere** with simple Python dependencies, Dockerfile, and Replit configuration.
+- 🔍 **Multi-source adapters** for Reddit searches, subreddit streams, Twitter/X live searches,
+  generic RSS feeds, and arbitrary HTML pages.
+- 🧭 **URL verification** at startup and on demand with a public health API.
+- 🧠 **Robust detection heuristics** including regex length bounds, digit requirement, denylist,
+  repeated-character filtering, and ascending sequence rejection.
+- 🗄️ **Flexible storage** via an in-memory repository or SQLite persistence with identical APIs.
+- 📡 **JSON API + SSE** for programmatic access, live updates, filters, paging, and exports.
+- 📊 **Professional UI** with KPIs, filters, SSE-driven updates, source health, logs, and exports.
+- 📈 **Structured logging** to stdout and rotating files for app, poller, and source health.
+- 🔔 **Optional Discord webhooks** when new invite code candidates are discovered.
 
-## Quickstart
+## Quick Start
 
 ### Local development
 
@@ -24,7 +30,13 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The server listens on `http://0.0.0.0:3000` by default. Visit the dashboard at `/` and the health check at `/healthz`.
+Visit <http://0.0.0.0:3000> for the dashboard and <http://0.0.0.0:3000/healthz> for the health
+check.
+
+### Replit
+
+The repository includes `.replit` and `replit.nix`. Import the project on Replit and press **Run**
+(the default command executes `python app.py`).
 
 ### Docker
 
@@ -33,117 +45,94 @@ docker build -t sora-hunter .
 docker run -p 3000:3000 --env PORT=3000 sora-hunter
 ```
 
-### Replit
-
-The repository includes `.replit` and `replit.nix`. Import the project on Replit and click **Run**.
-
-## Deployment on Render.com
-
-1. Create a new **Web Service** in Render and connect this repository.
-2. Set **Environment** to `Docker` and keep the Dockerfile defaults.
-3. Configure environment variables as needed (see below). Render automatically installs dependencies and runs `python app.py`.
-4. If using SQLite persistence, set `STORE=sqlite` and ensure the `data/` directory is writable (Render's persistent disk).
-
 ## Configuration
 
-Environment variables control runtime behavior:
+Environment variables control runtime behaviour:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `PORT` | `3000` | Port the Flask server binds to. |
+| `PORT` | `3000` | Port for the Flask app. |
 | `BIND` | `0.0.0.0` | Bind address. |
-| `POLL_INTERVAL_SECONDS` | `60` | Interval between polling cycles. |
-| `USER_AGENT` | `SoraInviteCodeHunter/1.0 (+https://render.com/docs/deploy-flask)` | User agent string for HTTP requests. |
-| `STORE` | `memory` | Storage backend: `memory` or `sqlite`. |
-| `SQLITE_PATH` | `data/codes.db` | SQLite file path when `STORE=sqlite`. |
-| `DISCORD_WEBHOOK_URL` | _(unset)_ | Discord webhook to notify about new codes. |
-| `ADAPTERS` | `reddit_search,reddit_subs,generic_rss,generic_html` | Comma-separated list of adapters to enable. |
+| `POLL_INTERVAL_SECONDS` | `60` | Base polling interval per adapter. |
+| `USER_AGENT` | `sora-hunter/0.1` | User-Agent header for outbound requests. |
+| `STORE` | `memory` | `memory` (default) or `sqlite`. |
+| `SQLITE_PATH` | `data/codes.db` | SQLite database path when `STORE=sqlite`. |
+| `DISCORD_WEBHOOK_URL` | _unset_ | Discord webhook for notifications. |
+| `MIN_LEN` | `5` | Minimum invite code length. |
+| `MAX_LEN` | `8` | Maximum invite code length. |
+| `ADAPTERS` | _all adapters_ | Comma-separated adapter list to enable. |
 
-> **Reddit 403 errors:** Reddit increasingly rejects requests without a descriptive user agent. Update `USER_AGENT` to include a
-> contact URL/email you control (for example `SoraInviteCodeHunter/1.0 (+https://example.com/contact)`). The built-in Reddit
-> adapters automatically retry through `api.reddit.com` if `www.reddit.com` responds with HTTP 403, which keeps polling running
-> on providers such as Render.
+The curated source definitions live in `config/sources.json` and the denylist tokens in
+`config/denylist.json`. Both files are loaded and validated at startup; malformed JSON terminates the
+app early with an informative log entry.
 
-Adapter-specific settings and denylist tokens live in `config/sources.json`:
+## API Overview
 
-```json
-{
-  "reddit_search": {
-    "query": "Sora invite code OR \"Sora 2 invite\" OR \"Sora2 invite\"",
-    "limit": 75
-  },
-  "reddit_subs": {
-    "subs": ["ChatGPT", "OpenAI", "SoraAI"],
-    "limit": 50
-  },
-  "generic_rss": {
-    "feeds": [
-      "https://hnrss.org/newest",
-      "https://news.ycombinator.com/rss"
-    ]
-  },
-  "generic_html": {
-    "urls": [
-      "https://www.reddit.com/r/ChatGPT/",
-      "https://www.reddit.com/r/OpenAI/",
-      "https://www.reddit.com/r/SoraAI/"
-    ]
-  },
-  "denylist_tokens": ["TODAY", "UPDATE", "HTTPS", "HTTP", "AM", "PM", "UTC", "USA", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "SEPT", "OCT", "NOV", "DEC"]
-}
-```
-
-Adjust values as needed, redeploy, and the polling thread will use the new configuration.
-
-## API
+All endpoints return JSON unless stated otherwise.
 
 | Endpoint | Method | Description |
 | --- | --- | --- |
 | `/` | GET | Dashboard UI. |
-| `/api/snapshot` | GET | Latest poll timestamp, counts, and most recent candidates. |
-| `/api/codes` | GET | Paginated list with filters: `q`, `source`, `include_hidden`, `include_tried`, `page`, `page_size`. |
-| `/api/codes/<code>/tried` | POST | Mark a code as tried. |
-| `/api/codes/<code>/hide` | POST | Toggle hidden flag. |
-| `/api/codes/<code>` | DELETE | Delete a candidate. |
-| `/events` | GET | Server-Sent Events stream with new candidates. |
-| `/healthz` | GET | Health check returning `{ "ok": true }`. |
+| `/healthz` | GET | Simple health check `{ "ok": true }`. |
+| `/events` | GET | Server-Sent Events stream for new codes. |
+| `/api/snapshot` | GET | Summary of totals, health info, and latest codes. |
+| `/api/codes` | GET | Paginated list with `q`, `source`, `include_hidden`, `include_tried`, `page`, `page_size`. |
+| `/api/codes/{code}/tried` | POST | Mark a candidate as tried. |
+| `/api/codes/{code}/hide` | POST | Toggle hidden status. |
+| `/api/codes/{code}` | DELETE | Delete a candidate. |
+| `/api/export.json` | GET | Export filtered candidates as JSON (respects filters). |
+| `/api/export.csv` | GET | Export filtered candidates as CSV. |
+| `/api/logs/tail` | GET | Tail structured logs (`name=app|poller|source_health`, `lines=N`). |
+| `/api/sources/health` | GET | Current status of configured URLs. |
+| `/api/sources/recheck` | POST | Re-run health checks across all sources. |
 
-### Candidate payload
+## Data Model
 
-```json
-{
-  "code": "7ZDCNP",
-  "source": "reddit_search",
-  "source_title": "Sora invite drop",
-  "url": "https://www.reddit.com/...",
-  "example_text": "Sharing my spare Sora invite...",
-  "discovered_at": "2024-03-11T14:33:22Z",
-  "tried": 0,
-  "hidden": 0
-}
+The repository schema (SQLite table `candidates`) stores:
+
+```text
+id INTEGER PRIMARY KEY
+code TEXT UNIQUE
+source TEXT
+source_title TEXT
+url TEXT
+example_text TEXT
+discovered_at TEXT (ISO-8601)
+tried INTEGER DEFAULT 0
+hidden INTEGER DEFAULT 0
 ```
 
-## Tests
+The in-memory repository mirrors the same structure and behaviour. Both implementations expose a
+`count_since` helper used for KPI calculations.
 
-Run the unit tests with:
+## Logging & Observability
+
+Structured logs use the format `ISO | LEVEL | COMPONENT | message | {extras}` and are emitted to
+stdout and rotating files inside `logs/`:
+
+- `logs/app.log` – configuration, startup, API notices.
+- `logs/poller.log` – adapter fetch outcomes and backoff decisions.
+- `logs/source_health.log` – URL verification results.
+
+Use `/api/logs/tail` or the UI Logs tab to inspect recent activity. Poller backoff is capped at 5
+minutes and handles HTTP 429 separately.
+
+## Running Tests
 
 ```bash
 pytest -q
 ```
 
-Tests cover the extractor logic and both storage backends, plus a minimal integration check for the health endpoint.
+The test suite covers extraction heuristics and repository behaviour (both in-memory and SQLite).
 
-## Ethics and rate limits
+## Limitations & Ethics
 
-The app only polls public endpoints and respects published rate limits. Be mindful of the load you generate, customize polling intervals responsibly, and never use the tool for commercial resale of invite codes.
-
-## Roadmap
-
-- Optional authentication for write endpoints.
-- UI for editing adapter configuration.
-- Additional source adapters (e.g., Mastodon, Bluesky).
-- Advanced heuristics using NLP for fewer false positives.
+- HTML scraping of Twitter/X is best-effort and may degrade gracefully when blocked.
+- Invite code detection relies on heuristics and may still produce false positives—manual vetting is
+  recommended before use.
+- Only public information is monitored. Respect rate limits and do not redistribute harvested codes
+  commercially.
 
 ## License
 
-MIT © 2024 [Your Name]
+This project is released under the MIT License. See [LICENSE](LICENSE) for details.

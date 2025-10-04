@@ -86,8 +86,16 @@ class SQLiteRepository(CandidateRepository):
             cursor = self.conn.execute("DELETE FROM candidates WHERE code = ?", (code.upper(),))
         return cursor.rowcount > 0
 
-    def list(self, *, q: str | None = None, source: str | None = None, include_hidden: bool = False,
-             include_tried: bool = True, offset: int = 0, limit: int = 100) -> List[CandidateRecord]:
+    def list(
+        self,
+        *,
+        q: str | None = None,
+        source: str | None = None,
+        include_hidden: bool = False,
+        include_tried: bool = True,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> List[CandidateRecord]:
         clauses = ["1=1"]
         params: list = []
         if not include_hidden:
@@ -101,14 +109,25 @@ class SQLiteRepository(CandidateRepository):
             like = f"%{q.upper()}%"
             clauses.append("(UPPER(code) LIKE ? OR UPPER(source_title) LIKE ? OR UPPER(example_text) LIKE ?)")
             params.extend([like, like, like])
-        sql = "SELECT code, source, source_title, url, example_text, discovered_at, tried, hidden FROM candidates WHERE " + " AND ".join(clauses) + " ORDER BY datetime(discovered_at) DESC, rowid DESC LIMIT ? OFFSET ?"
+        sql = (
+            "SELECT code, source, source_title, url, example_text, discovered_at, tried, hidden "
+            "FROM candidates WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY datetime(discovered_at) DESC, rowid DESC LIMIT ? OFFSET ?"
+        )
         params.extend([limit, offset])
         cursor = self.conn.execute(sql, params)
         rows = cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 
-    def count(self, *, q: str | None = None, source: str | None = None, include_hidden: bool = False,
-              include_tried: bool = True) -> int:
+    def count(
+        self,
+        *,
+        q: str | None = None,
+        source: str | None = None,
+        include_hidden: bool = False,
+        include_tried: bool = True,
+    ) -> int:
         clauses = ["1=1"]
         params: list = []
         if not include_hidden:
@@ -132,10 +151,20 @@ class SQLiteRepository(CandidateRepository):
 
     def get_latest(self, limit: int = 20) -> List[CandidateRecord]:
         cursor = self.conn.execute(
-            "SELECT code, source, source_title, url, example_text, discovered_at, tried, hidden FROM candidates ORDER BY datetime(discovered_at) DESC, rowid DESC LIMIT ?",
+            "SELECT code, source, source_title, url, example_text, discovered_at, tried, hidden FROM candidates "
+            "ORDER BY datetime(discovered_at) DESC, rowid DESC LIMIT ?",
             (limit,),
         )
         return [self._row_to_dict(row) for row in cursor.fetchall()]
+
+    def count_since(self, since_iso: str, *, include_hidden: bool = False) -> int:
+        clauses = ["datetime(discovered_at) >= datetime(?)"]
+        params = [since_iso]
+        if not include_hidden:
+            clauses.append("hidden = 0")
+        sql = "SELECT COUNT(*) FROM candidates WHERE " + " AND ".join(clauses)
+        cursor = self.conn.execute(sql, params)
+        return cursor.fetchone()[0]
 
     def _row_to_dict(self, row: sqlite3.Row) -> CandidateRecord:
         return {

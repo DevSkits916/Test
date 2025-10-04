@@ -13,10 +13,7 @@ class CandidateRepository(abc.ABC):
 
     @abc.abstractmethod
     def add_candidate(self, candidate: CandidateRecord) -> bool:
-        """Add a candidate if not already present.
-
-        Returns ``True`` if inserted, ``False`` if it already existed.
-        """
+        """Add a candidate if not already present."""
 
     @abc.abstractmethod
     def bulk_add(self, candidates: Iterable[CandidateRecord]) -> int:
@@ -35,13 +32,27 @@ class CandidateRepository(abc.ABC):
         """Delete candidate by code."""
 
     @abc.abstractmethod
-    def list(self, *, q: str | None = None, source: str | None = None, include_hidden: bool = False,
-             include_tried: bool = True, offset: int = 0, limit: int = 100) -> List[CandidateRecord]:
+    def list(
+        self,
+        *,
+        q: str | None = None,
+        source: str | None = None,
+        include_hidden: bool = False,
+        include_tried: bool = True,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> List[CandidateRecord]:
         """List candidates ordered by newest first."""
 
     @abc.abstractmethod
-    def count(self, *, q: str | None = None, source: str | None = None, include_hidden: bool = False,
-              include_tried: bool = True) -> int:
+    def count(
+        self,
+        *,
+        q: str | None = None,
+        source: str | None = None,
+        include_hidden: bool = False,
+        include_tried: bool = True,
+    ) -> int:
         """Return number of candidates for filters."""
 
     @abc.abstractmethod
@@ -51,3 +62,7 @@ class CandidateRepository(abc.ABC):
     @abc.abstractmethod
     def get_latest(self, limit: int = 20) -> List[CandidateRecord]:
         """Get latest candidates for SSE bootstrap."""
+
+    @abc.abstractmethod
+    def count_since(self, since_iso: str, *, include_hidden: bool = False) -> int:
+        """Count candidates discovered after ``since_iso`` (inclusive)."""

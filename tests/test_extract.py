@@ -11,7 +11,7 @@ from app import CodeExtractor, ExtractionSettings, app  # noqa: E402
 
 
 def make_extractor():
-    settings = ExtractionSettings(denylist=["HTTPS", "UPDATE"], min_len=5, max_len=8)
+    settings = ExtractionSettings(denylist=["HTTPS", "UPDATE", "SORA"], min_len=5, max_len=8)
     return CodeExtractor(settings)
 
 
@@ -27,10 +27,22 @@ def test_extractor_rejects_denylist_and_short_codes():
     assert extractor.extract(text) == []
 
 
-def test_extractor_requires_digits():
+def test_extractor_requires_digits_and_alpha_mix():
     extractor = make_extractor()
-    text = "Potential codes SORAXX and INVITE"
+    text = "Potential codes SORAXX and INVITE and 12345"
     assert extractor.extract(text) == []
+
+
+def test_extractor_rejects_repeated_and_ascending_sequences():
+    extractor = make_extractor()
+    text = "AAAAAA might look real but so does 123456"
+    assert extractor.extract(text) == []
+
+
+def test_extractor_ignores_urls():
+    extractor = make_extractor()
+    text = "Check https://example.com/ABC12 path or code ZX9K3 at the end"
+    assert extractor.extract(text) == ["ZX9K3"]
 
 
 def test_build_snippet():

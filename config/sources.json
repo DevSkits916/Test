@@ -1,46 +1,44 @@
 {
   "reddit_search": {
+    "enabled": true,
     "query": "Sora invite code OR \"Sora 2 invite\" OR \"Sora2 invite\"",
-    "limit": 75
+    "limit": 75,
+    "endpoint": "https://www.reddit.com/search.json"
   },
   "reddit_subs": {
-    "subs": ["ChatGPT", "OpenAI", "SoraAI"],
+    "enabled": true,
+    "subs": ["ChatGPT", "OpenAI", "SoraAI", "ArtificialInteligence", "AIGenArt"],
     "limit": 50
   },
+  "twitter_search": {
+    "enabled": true,
+    "queries": [
+      "Sora invite code",
+      "\"Sora 2\" invite",
+      "#SoraInvite",
+      "#Sora2"
+    ],
+    "live_urls": [
+      "https://x.com/search?q=Sora%20invite%20code&f=live",
+      "https://x.com/search?q=%22Sora%202%22%20invite&f=live",
+      "https://x.com/search?q=%23SoraInvite&f=live",
+      "https://x.com/search?q=%23Sora2&f=live"
+    ],
+    "note": "These endpoints are best-effort HTML scraping; handle blocks/timeouts gracefully."
+  },
   "generic_rss": {
+    "enabled": true,
     "feeds": [
       "https://hnrss.org/newest",
       "https://news.ycombinator.com/rss"
     ]
   },
   "generic_html": {
+    "enabled": true,
     "urls": [
       "https://www.reddit.com/r/ChatGPT/",
       "https://www.reddit.com/r/OpenAI/",
       "https://www.reddit.com/r/SoraAI/"
     ]
-  },
-  "denylist_tokens": [
-    "TODAY",
-    "UPDATE",
-    "HTTPS",
-    "HTTP",
-    "AM",
-    "PM",
-    "UTC",
-    "USA",
-    "JAN",
-    "FEB",
-    "MAR",
-    "APR",
-    "MAY",
-    "JUN",
-    "JUL",
-    "AUG",
-    "SEP",
-    "SEPT",
-    "OCT",
-    "NOV",
-    "DEC"
-  ]
+  }
 }

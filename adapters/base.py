@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -27,28 +28,35 @@ class SourceAdapter(ABC):
 
     name: str = "base"
 
-    def __init__(self, config: Dict[str, Any], *, user_agent: str, logger: logging.Logger):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        *,
+        session: Optional[requests.Session] = None,
+        user_agent: str,
+        logger: logging.Logger,
+    ) -> None:
         self.config = config or {}
         self.user_agent = user_agent
         self.logger = logger
-        self.session = requests.Session()
+        self.session = session or requests.Session()
         self.session.headers.update(
             {
                 "User-Agent": user_agent,
-                "Accept": "application/json",
+                "Accept": "application/json, text/html;q=0.9, */*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Cache-Control": "no-cache",
             }
         )
+        self.timeout = int(self.config.get("timeout", 15))
 
     @abstractmethod
     def fetch(self) -> List[Dict[str, Any]]:
         """Return a list of normalized items."""
 
+    # -- HTTP helpers -----------------------------------------------------
     def get(self, url: str, **kwargs: Any) -> requests.Response:
-        """Wrapper around ``requests.get`` with sane defaults and logging."""
-
-        timeout = kwargs.pop("timeout", 10)
+        timeout = kwargs.pop("timeout", self.timeout)
         try:
             response = self.session.get(url, timeout=timeout, **kwargs)
             response.raise_for_status()
@@ -57,21 +65,43 @@ class SourceAdapter(ABC):
             self.logger.warning("%s adapter request failed: %s", self.name, exc)
             raise
 
-    def get_with_reddit_fallback(self, url: str, **kwargs: Any) -> requests.Response:
-        """Attempt request and retry via api.reddit.com on 403 responses."""
-
+    def head(self, url: str, **kwargs: Any) -> requests.Response:
+        timeout = kwargs.pop("timeout", self.timeout)
         try:
-            return self.get(url, **kwargs)
-        except requests.HTTPError as exc:
-            response = getattr(exc, "response", None)
-            if response is not None and response.status_code == 403 and "www.reddit.com" in url:
-                alt_url = url.replace("www.reddit.com", "api.reddit.com")
-                self.logger.info("%s adapter retrying via api.reddit.com after 403", self.name)
-                return self.get(alt_url, **kwargs)
+            response = self.session.head(url, timeout=timeout, allow_redirects=True, **kwargs)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:  # pragma: no cover - logging path
+            self.logger.warning("%s adapter HEAD request failed: %s", self.name, exc)
             raise
 
+    # -- Normalisation helpers -------------------------------------------
+    def normalize_item(
+        self,
+        *,
+        title: str,
+        text: str,
+        url: str,
+        source_id: Optional[str] = None,
+        timestamp: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "title": title or "",
+            "text": text or "",
+            "url": url or "",
+            "source_id": source_id or self.name,
+            "timestamp_iso": (timestamp or datetime.now(timezone.utc)).isoformat(),
+        }
 
-def create_adapters(names: List[str], config: Dict[str, Any], *, user_agent: str, logger: logging.Logger) -> List[SourceAdapter]:
+
+def create_adapters(
+    names: List[str],
+    config: Dict[str, Any],
+    *,
+    session: Optional[requests.Session],
+    user_agent: str,
+    logger: logging.Logger,
+) -> List[SourceAdapter]:
     """Instantiate adapters listed in ``names`` with config scoped to each."""
 
     instances: List[SourceAdapter] = []
@@ -81,5 +111,9 @@ def create_adapters(names: List[str], config: Dict[str, Any], *, user_agent: str
             logger.warning("Adapter %s not found in registry", name)
             continue
         adapter_config = config.get(name, {}) if config else {}
-        instances.append(cls(adapter_config, user_agent=user_agent, logger=logger))
+        if adapter_config is not None and not adapter_config.get("enabled", True):
+            continue
+        instances.append(
+            cls(adapter_config or {}, session=session, user_agent=user_agent, logger=logger)
+        )
     return instances
