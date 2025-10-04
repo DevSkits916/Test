@@ -20,7 +20,7 @@ def sample_candidate(code: str, **overrides):
         "source_title": "Example",
         "url": "https://example.com",
         "example_text": "Example snippet",
-        "discovered_at": "2024-01-01T00:00:00Z",
+        "discovered_at": "2024-01-01T00:00:00+00:00",
         "tried": 0,
         "hidden": 0,
     }
@@ -45,8 +45,11 @@ def check_repository(repo):
     latest = repo.get_latest()
     assert latest
 
+    assert repo.count_since("2023-12-31T00:00:00+00:00") >= 1
+
     assert repo.delete("ABC12")
     assert not repo.delete("ABC12")
+    assert repo.count() == 0
 
 
 def test_memory_repository():

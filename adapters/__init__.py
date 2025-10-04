@@ -1,5 +1,10 @@
-"""Source adapter registry and helpers."""
+"""Adapter package exports."""
 
-from .base import REGISTRY, SourceAdapter, register
+from . import generic_html, generic_rss, reddit_search, reddit_subs, twitter_search  # noqa: F401
+from .base import create_adapters, register, SourceAdapter
 
-__all__ = ["REGISTRY", "SourceAdapter", "register"]
+__all__ = [
+    "create_adapters",
+    "register",
+    "SourceAdapter",
+]

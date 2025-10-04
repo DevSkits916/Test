@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime
 from typing import Dict, Iterable, List
 
 from .repo import CandidateRecord, CandidateRepository
@@ -56,8 +57,16 @@ class InMemoryRepository(CandidateRepository):
                 return True
             return False
 
-    def list(self, *, q: str | None = None, source: str | None = None, include_hidden: bool = False,
-             include_tried: bool = True, offset: int = 0, limit: int = 100) -> List[CandidateRecord]:
+    def list(
+        self,
+        *,
+        q: str | None = None,
+        source: str | None = None,
+        include_hidden: bool = False,
+        include_tried: bool = True,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> List[CandidateRecord]:
         with self._lock:
             records = list(self._store.values())
         q_upper = q.upper() if q else None
@@ -70,20 +79,56 @@ class InMemoryRepository(CandidateRepository):
             if source and record.get("source") != source:
                 continue
             if q_upper:
-                haystack = f"{record.get('code', '')} {record.get('source_title', '')} {record.get('example_text', '')}".upper()
+                haystack = (
+                    f"{record.get('code', '')} {record.get('source_title', '')} {record.get('example_text', '')}"
+                ).upper()
                 if q_upper not in haystack:
                     continue
-            filtered.append(record)
+            filtered.append(dict(record))
         filtered.sort(key=lambda r: str(r.get("discovered_at", "")), reverse=True)
-        return filtered[offset: offset + limit]
+        return filtered[offset : offset + limit]
 
-    def count(self, *, q: str | None = None, source: str | None = None, include_hidden: bool = False,
-              include_tried: bool = True) -> int:
-        return len(self.list(q=q, source=source, include_hidden=include_hidden,
-                             include_tried=include_tried, offset=0, limit=10_000_000))
+    def count(
+        self,
+        *,
+        q: str | None = None,
+        source: str | None = None,
+        include_hidden: bool = False,
+        include_tried: bool = True,
+    ) -> int:
+        return len(
+            self.list(
+                q=q,
+                source=source,
+                include_hidden=include_hidden,
+                include_tried=include_tried,
+                offset=0,
+                limit=10_000_000,
+            )
+        )
 
     def exists(self, code: str) -> bool:
         return code.upper() in self._store
 
     def get_latest(self, limit: int = 20) -> List[CandidateRecord]:
         return self.list(offset=0, limit=limit)
+
+    def count_since(self, since_iso: str, *, include_hidden: bool = False) -> int:
+        try:
+            since_dt = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
+        except ValueError:
+            since_dt = datetime.min
+        count = 0
+        with self._lock:
+            records = list(self._store.values())
+        for record in records:
+            if not include_hidden and int(record.get("hidden", 0)):
+                continue
+            stamp = str(record.get("discovered_at") or "")
+            try:
+                record_dt = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if record_dt >= since_dt:
+                count += 1
+        return count

@@ -1,64 +1,184 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sora Invite Code Hunter</title>
-  <link rel="stylesheet" href="/static/main.css" />
-</head>
-<body>
-  <header>
-    <h1>Sora Invite Code Hunter</h1>
-    <div class="status-line">
-      <span>Last poll: <strong id="last-poll">—</strong></span>
-      <span>Total visible codes: <strong id="total-codes">0</strong></span>
-      <span>Active sources: {{ ', '.join(active_sources) }}</span>
-    </div>
-    <div class="filters">
-      <label>
-        Search
-        <input id="filter-q" type="search" placeholder="Search codes or snippets" />
-      </label>
-      <label>
-        Source
-        <select id="filter-source">
-          <option value="">All sources</option>
-          {% for source in active_sources %}
-          <option value="{{ source }}">{{ source }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        <span>Show hidden</span>
-        <input id="filter-hidden" type="checkbox" />
-      </label>
-      <label>
-        <span>Include tried</span>
-        <input id="filter-tried" type="checkbox" checked />
-      </label>
-      <div class="actions" style="align-self: end;">
-        <button id="export-json" class="secondary">Export JSON</button>
-        <button id="export-csv" class="secondary">Export CSV</button>
-      </div>
-    </div>
-  </header>
-  <main>
-    <div class="table-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>Discovered</th>
-            <th>Source</th>
-            <th>Link</th>
-            <th>Snippet</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="codes-body"></tbody>
-      </table>
-    </div>
-  </main>
-  <script src="/static/main.js" type="module"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/static/main.css" />
+  </head>
+  <body>
+    <nav class="top-nav">
+      <div class="brand">{{ app_name }}</div>
+      <button class="nav-link active" data-target="dashboard">Dashboard</button>
+      <button class="nav-link" data-target="sources">Sources</button>
+      <button class="nav-link" data-target="logs">Logs</button>
+      <button class="nav-link" data-target="export">Export</button>
+      <button class="nav-link" data-target="about">About</button>
+    </nav>
+
+    <main>
+      <section id="view-dashboard" class="view active">
+        <header class="section-header">
+          <h1>Live Dashboard</h1>
+          <div class="kpis">
+            <div class="kpi">
+              <span class="label">Last Poll</span>
+              <span class="value" id="kpi-last-poll">—</span>
+            </div>
+            <div class="kpi">
+              <span class="label">Total Candidates</span>
+              <span class="value" id="kpi-total">0</span>
+            </div>
+            <div class="kpi">
+              <span class="label">Last 24h</span>
+              <span class="value" id="kpi-last-24h">0</span>
+            </div>
+            <div class="kpi">
+              <span class="label">Active Sources</span>
+              <span class="value" id="kpi-sources">0</span>
+            </div>
+          </div>
+        </header>
+
+        <div class="card">
+          <form id="filters" class="filters" autocomplete="off">
+            <label>
+              Search
+              <input id="filter-q" name="q" type="search" placeholder="Search codes or snippets" />
+            </label>
+            <label>
+              Source
+              <select id="filter-source" name="source">
+                <option value="">All sources</option>
+              </select>
+            </label>
+            <label class="toggle">
+              <input id="filter-show-tried" type="checkbox" />
+              <span>Show tried</span>
+            </label>
+            <label class="toggle">
+              <input id="filter-show-hidden" type="checkbox" />
+              <span>Show hidden</span>
+            </label>
+            <div class="filter-actions">
+              <button type="button" id="filter-refresh" class="secondary">Refresh</button>
+              <button type="reset" id="filter-reset" class="secondary">Reset</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="table-toolbar">
+            <div class="table-info">
+              <span id="table-count">0 results</span>
+            </div>
+            <div class="table-actions">
+              <button id="export-json" class="secondary">Export JSON</button>
+              <button id="export-csv" class="secondary">Export CSV</button>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Discovered</th>
+                  <th>Source</th>
+                  <th>Link</th>
+                  <th>Snippet</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="codes-body"></tbody>
+            </table>
+          </div>
+          <div class="table-footer">
+            <button id="load-more" class="secondary">Load more</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-sources" class="view">
+        <header class="section-header">
+          <h1>Sources Health</h1>
+          <button id="recheck-sources" class="primary">Recheck All</button>
+        </header>
+        <div class="card">
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>URL</th>
+                  <th>Status</th>
+                  <th>Last Checked</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody id="sources-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-logs" class="view">
+        <header class="section-header">
+          <h1>Logs</h1>
+          <div class="logs-controls">
+            <label>
+              Log file
+              <select id="log-select">
+                <option value="app">Application</option>
+                <option value="poller">Poller</option>
+                <option value="source_health">Source Health</option>
+              </select>
+            </label>
+            <label>
+              Lines
+              <input id="log-lines" type="number" value="200" min="50" max="1000" step="50" />
+            </label>
+            <button id="logs-refresh" class="secondary">Refresh</button>
+            <button id="logs-toggle" class="secondary">Pause</button>
+          </div>
+        </header>
+        <div class="card">
+          <pre id="logs-view" class="logs-view">Loading…</pre>
+        </div>
+      </section>
+
+      <section id="view-export" class="view">
+        <header class="section-header">
+          <h1>Export Data</h1>
+        </header>
+        <div class="card">
+          <p>Exports respect the current filters from the dashboard.</p>
+          <div class="export-actions">
+            <button id="export-json-page" class="primary">Download JSON</button>
+            <button id="export-csv-page" class="primary">Download CSV</button>
+          </div>
+          <p class="hint">Use the dashboard filters to narrow results before exporting.</p>
+        </div>
+      </section>
+
+      <section id="view-about" class="view">
+        <header class="section-header">
+          <h1>About</h1>
+        </header>
+        <div class="card">
+          <p>
+            <strong>Sora Invite Code Hunter</strong> monitors public surfaces for mentions of potential
+            Sora 2 invite codes. It respects rate limits, avoids private data, and is intended for
+            ethical monitoring only.
+          </p>
+          <ul>
+            <li>Sources: curated Reddit queries, RSS feeds, generic HTML pages, and Twitter/X searches.</li>
+            <li>Heuristics: strict length bounds, denylist filtering, digit requirement, and repeated-pattern checks.</li>
+            <li>Usage: do not resell harvested information and respect the terms of each source.</li>
+          </ul>
+          <p class="hint">This tool is provided as-is without warranty. Public endpoints only.</p>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/main.js" type="module"></script>
+  </body>
 </html>
