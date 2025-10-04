@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sora Invite Code Hunter</title>
+  <link rel="stylesheet" href="/static/main.css" />
+</head>
+<body>
+  <header>
+    <h1>Sora Invite Code Hunter</h1>
+    <div class="status-line">
+      <span>Last poll: <strong id="last-poll">—</strong></span>
+      <span>Total visible codes: <strong id="total-codes">0</strong></span>
+      <span>Active sources: {{ ', '.join(active_sources) }}</span>
+    </div>
+    <div class="filters">
+      <label>
+        Search
+        <input id="filter-q" type="search" placeholder="Search codes or snippets" />
+      </label>
+      <label>
+        Source
+        <select id="filter-source">
+          <option value="">All sources</option>
+          {% for source in active_sources %}
+          <option value="{{ source }}">{{ source }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Show hidden</span>
+        <input id="filter-hidden" type="checkbox" />
+      </label>
+      <label>
+        <span>Include tried</span>
+        <input id="filter-tried" type="checkbox" checked />
+      </label>
+      <div class="actions" style="align-self: end;">
+        <button id="export-json" class="secondary">Export JSON</button>
+        <button id="export-csv" class="secondary">Export CSV</button>
+      </div>
+    </div>
+  </header>
+  <main>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Discovered</th>
+            <th>Source</th>
+            <th>Link</th>
+            <th>Snippet</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="codes-body"></tbody>
+      </table>
+    </div>
+  </main>
+  <script src="/static/main.js" type="module"></script>
+</body>
+</html>
