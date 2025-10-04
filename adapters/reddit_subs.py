@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Dict, List
 
+import requests
+
 from .base import SourceAdapter, register
 
 SUB_URL_TEMPLATE = "https://www.reddit.com/r/{sub}/new.json"
@@ -22,8 +24,8 @@ class RedditSubsAdapter(SourceAdapter):
             url = SUB_URL_TEMPLATE.format(sub=sub)
             params = {"limit": limit}
             try:
-                response = self.get(url, params=params, headers={"User-Agent": self.user_agent})
-            except Exception:
+                response = self.get_with_reddit_fallback(url, params=params)
+            except requests.RequestException:
                 continue
             payload = response.json()
             for child in payload.get("data", {}).get("children", []):

@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Dict, List
 
+import requests
+
 from .base import SourceAdapter, register
 
 REDDIT_SEARCH_URL = "https://www.reddit.com/search.json"
@@ -19,8 +21,8 @@ class RedditSearchAdapter(SourceAdapter):
         limit = int(self.config.get("limit", 50))
         params = {"q": query, "sort": "new", "limit": limit, "restrict_sr": False}
         try:
-            response = self.get(REDDIT_SEARCH_URL, params=params, headers={"User-Agent": self.user_agent})
-        except Exception:
+            response = self.get_with_reddit_fallback(REDDIT_SEARCH_URL, params=params)
+        except requests.RequestException:
             return []
         payload = response.json()
         items: List[Dict[str, Any]] = []

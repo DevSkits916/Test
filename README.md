@@ -53,11 +53,16 @@ Environment variables control runtime behavior:
 | `PORT` | `3000` | Port the Flask server binds to. |
 | `BIND` | `0.0.0.0` | Bind address. |
 | `POLL_INTERVAL_SECONDS` | `60` | Interval between polling cycles. |
-| `USER_AGENT` | `sora-hunter/0.1` | User agent string for HTTP requests. |
+| `USER_AGENT` | `SoraInviteCodeHunter/1.0 (+https://render.com/docs/deploy-flask)` | User agent string for HTTP requests. |
 | `STORE` | `memory` | Storage backend: `memory` or `sqlite`. |
 | `SQLITE_PATH` | `data/codes.db` | SQLite file path when `STORE=sqlite`. |
 | `DISCORD_WEBHOOK_URL` | _(unset)_ | Discord webhook to notify about new codes. |
 | `ADAPTERS` | `reddit_search,reddit_subs,generic_rss,generic_html` | Comma-separated list of adapters to enable. |
+
+> **Reddit 403 errors:** Reddit increasingly rejects requests without a descriptive user agent. Update `USER_AGENT` to include a
+> contact URL/email you control (for example `SoraInviteCodeHunter/1.0 (+https://example.com/contact)`). The built-in Reddit
+> adapters automatically retry through `api.reddit.com` if `www.reddit.com` responds with HTTP 403, which keeps polling running
+> on providers such as Render.
 
 Adapter-specific settings and denylist tokens live in `config/sources.json`:
 

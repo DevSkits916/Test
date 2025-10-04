@@ -32,7 +32,14 @@ class SourceAdapter(ABC):
         self.user_agent = user_agent
         self.logger = logger
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": user_agent})
+        self.session.headers.update(
+            {
+                "User-Agent": user_agent,
+                "Accept": "application/json",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
+            }
+        )
 
     @abstractmethod
     def fetch(self) -> List[Dict[str, Any]]:
@@ -48,6 +55,19 @@ class SourceAdapter(ABC):
             return response
         except requests.RequestException as exc:  # pragma: no cover - logging path
             self.logger.warning("%s adapter request failed: %s", self.name, exc)
+            raise
+
+    def get_with_reddit_fallback(self, url: str, **kwargs: Any) -> requests.Response:
+        """Attempt request and retry via api.reddit.com on 403 responses."""
+
+        try:
+            return self.get(url, **kwargs)
+        except requests.HTTPError as exc:
+            response = getattr(exc, "response", None)
+            if response is not None and response.status_code == 403 and "www.reddit.com" in url:
+                alt_url = url.replace("www.reddit.com", "api.reddit.com")
+                self.logger.info("%s adapter retrying via api.reddit.com after 403", self.name)
+                return self.get(alt_url, **kwargs)
             raise
 
 

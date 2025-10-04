@@ -27,7 +27,10 @@ from storage.sqlite_repo import SQLiteRepository
 
 APP_NAME = "Sora Invite Code Hunter"
 DEFAULT_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
-DEFAULT_USER_AGENT = os.getenv("USER_AGENT", "sora-hunter/0.1")
+DEFAULT_USER_AGENT = os.getenv(
+    "USER_AGENT",
+    "SoraInviteCodeHunter/1.0 (+https://render.com/docs/deploy-flask)",
+)
 CONFIG_PATH = Path(os.getenv("CONFIG_PATH", "config/sources.json"))
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s in %(name)s: %(message)s")
